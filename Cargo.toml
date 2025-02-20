@@ -7,9 +7,12 @@ edition = "2021"
 criterion = "0.5.1"
 
 [dependencies]
+actix-web = "4.9.0"
 futures = "0.3.31"
 reqwest = "0.12.12"
+scraper = "0.22.0"
 serde = "1.0.217"
 thirtyfour = "0.35.0"
 tokio = "1.43.0"
 undetected-chromedriver = "0.1.2"
+url = "2.5.4"

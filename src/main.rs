@@ -1,66 +1,71 @@
 use std::sync::Arc;
 use thirtyfour::{prelude::*, DesiredCapabilities};
 use tokio::sync::Semaphore;
-use futures::future::join_all;
+use actix_web::{web, App, HttpServer, HttpResponse};
+use serde::Deserialize;
 
-#[tokio::main]
-async fn main() -> WebDriverResult<()> {
-    let movies = vec![
-        "The Shawshank Redemption",
-        "The Godfather",
-        "Pulp Fiction",
-        "The Dark Knight",
-        "Fight Club",
-        "Inception",
-        "Goodfellas",
-        "The Matrix",
-        "Forrest Gump",
-        "Star Wars",
-        "The Lord of the Rings",
-        "Jurassic Park",
-        "Titanic",
-        "Avatar",
-        "The Avengers",
-        "Gladiator",
-        "The Silence of the Lambs",
-        "Saving Private Ryan",
-        "Schindler's List",
-        "The Green Mile",
-    ];
+#[derive(Deserialize)]
+struct PosterQuery {
+    movie: String,
+}
 
-    let semaphore = Arc::new(Semaphore::new(20)); // Limit concurrent WebDriver instances
-    let mut handles = Vec::new();
+async fn welcome() ->HttpResponse {
+         return HttpResponse::Ok().body(format!("Successfully connected"));
+}
+ 
+async fn get_poster(query: web::Query<PosterQuery>, semaphore: web::Data<Arc<Semaphore>>) -> HttpResponse {
+    let movie_name = query.movie.clone();
+    
+    // Spawn task to fetch poster
+    let result = tokio::spawn(async move {
+        // Clone the Arc before calling acquire_owned
+        let _permit = semaphore.get_ref().clone().acquire_owned().await.unwrap();
 
-    for movie in movies {
-        let movie_name = movie.to_string();
-        let semaphore = semaphore.clone();
-        
-        let handle = tokio::spawn(async move {
-            // Acquire a permit from the semaphore
-            let _permit = semaphore.acquire_owned().await.unwrap();
+        // Create a new WebDriver instance inside each task
+        let caps = DesiredCapabilities::chrome();
+        match WebDriver::new("http://localhost:65094", caps).await {
+            Ok(driver) => {
+                println!("Movie: {}", movie_name);
+                let url = format!("https://www.movieposters.com/collections/shop?q={}", movie_name);
+                
+                // Navigate to the URL
+                driver.goto(url).await?;
+                
+                // Find the first img element and get its src attribute
+                let img = driver.find(By::Tag("img")).await?;
+                let img_src = img.attr("src").await?;
+                println!("img src: {}",img.clone().class_name().await.unwrap().unwrap());
+                
+                // Quit WebDriver to clean up the session
+                let _ = driver.quit().await;
+                
+                Ok(img_src.unwrap_or_default())
+            },
+            Err(e) => Err(e)
+        }
+    }).await;
 
-            // Create a new WebDriver instance inside each task
-            let caps = DesiredCapabilities::chrome();
-            let driver = WebDriver::new("http://localhost:65094", caps).await?;
-
-            println!("Movie: {}", movie_name);
-            let url = format!("https://www.movieposters.com/collections/shop?q={}", movie_name);
-            driver.goto(url).await?;
-
-            // Quit WebDriver to clean up the session
-            driver.quit().await?;
-
-            Ok::<(), WebDriverError>(())
-        });
-
-        handles.push(handle);
+    match result {
+        Ok(Ok(img_src)) => HttpResponse::Ok().body(img_src),
+        _ => HttpResponse::InternalServerError().body("Failed to fetch poster image")
     }
+}
 
-    // Wait for all tasks to complete
-    let results = join_all(handles).await;
-    for result in results {
-        result.expect("Task panicked").expect("Error navigating to website");
-    }
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    // Create semaphore to limit concurrent WebDriver instances
+    let semaphore = web::Data::new(Arc::new(Semaphore::new(20)));
 
+    HttpServer::new(move || {
+        App::new()
+            .app_data(semaphore.clone())
+            .route("/poster", web::get().to(get_poster))
+            .route("/", web::get().to(welcome))
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await?;
+
+    println!("Server running at http://127.0.0.1:8080");
     Ok(())
 }
