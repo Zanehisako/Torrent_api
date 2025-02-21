@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration, collections::HashMap, time::SystemTime};
+use std::{sync::Arc, time::Duration, collections::HashMap};
 use std::sync::RwLock;
 use thirtyfour::{prelude::*, DesiredCapabilities};
 use tokio::{process::Command, sync::Semaphore, time::sleep};
@@ -13,7 +13,6 @@ struct PosterQuery {
 // Add a struct to track cache entry metadata
 struct CacheEntry {
     url: String,
-    timestamp: SystemTime,
     access_count: u32,
 }
 
@@ -40,6 +39,16 @@ async fn get_poster(
             entry.access_count += 1;
             return HttpResponse::Ok().body(entry.url.clone());
         }
+        
+        // Don't allow more than 20000 entries
+        if cache.len() >= 20000 {
+            // Remove least accessed entries before inserting new one
+            let mut entries: Vec<_> = cache.keys().cloned().collect();
+            entries.sort_by_key(|k| cache.get(k).unwrap().access_count);
+            if let Some(key) = entries.first() {
+                cache.remove(&key.clone());
+            }
+        }
     }
     
     let result = tokio::spawn(async move {
@@ -48,22 +57,20 @@ async fn get_poster(
         println!("Movie: {}", movie_name);
         let url = format!("https://www.movieposters.com/collections/shop?q={}", movie_name);
         
-        // Instead of opening a new tab, navigate in the current window
         data.driver.goto(&url).await?;
         
-        // Find the first img element and get its src attribute
-        let imgs = data.driver.find_all(By::Tag("img")).await?;
-        if imgs.len() < 2 {
-            return Ok(String::new());
-        }
-        let img = imgs[1].clone();
+        // Use a more specific selector for faster lookup
+        let img = match data.driver.find(By::ClassName("ss_img_load")).await {
+            Ok(element) => element,
+            Err(_) => return Ok(String::new()),
+        };
+        
         let img_src = img.attr("src").await?;
         
         // Store result in cache before returning
         if let Some(src) = &img_src {
             data.cache.write().unwrap().insert(movie_name, CacheEntry {
                 url: src.clone(),
-                timestamp: SystemTime::now(),
                 access_count: 1,
             });
         }
@@ -77,28 +84,20 @@ async fn get_poster(
     }
 }
 
-// Add a new function to clean the cache
+// Simplified clean_cache function
 async fn clean_cache(cache: &RwLock<HashMap<String, CacheEntry>>) {
-    let day = Duration::from_secs(24 * 60 * 60);
-    let now = SystemTime::now();
-    
     let mut cache = cache.write().unwrap();
-    let mut to_remove: Vec<String> = Vec::new();
     
-    // Find entries older than a day
-    for (key, entry) in cache.iter() {
-        if now.duration_since(entry.timestamp).unwrap() > day {
-            to_remove.push(key.clone());
-        }
-    }
-    
-    // If we need to remove entries, keep the most accessed ones
-    if !to_remove.is_empty() {
-        // Sort by access count (ascending)
-        to_remove.sort_by_key(|k| cache.get(k).unwrap().access_count);
-        // Remove the least accessed entries (keeping 20% of old entries)
-        let remove_count = (to_remove.len() * 80) / 100;
-        for key in to_remove.iter().take(remove_count) {
+    // Check if we've exceeded the threshold
+    if cache.len() >= 10000 {
+        let mut entries: Vec<_> = cache.keys().cloned().collect();
+        
+        // Sort by access count (ascending) - least accessed first
+        entries.sort_by_key(|k| cache.get(k).unwrap().access_count);
+        
+        // Remove entries until we're back to 80% of max capacity (16000)
+        let remove_count = entries.len().saturating_sub(16000);
+        for key in entries.iter().take(remove_count) {
             cache.remove(key);
         }
     }
