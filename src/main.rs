@@ -3,7 +3,7 @@ use std::sync::RwLock;
 use thirtyfour::{prelude::*, DesiredCapabilities};
 use tokio::{process::Command, sync::Semaphore, time::sleep};
 use actix_web::{web, App, HttpServer, HttpResponse};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 struct PosterQuery {
@@ -11,6 +11,7 @@ struct PosterQuery {
 }
 
 // Add a struct to track cache entry metadata
+#[derive(Deserialize, Serialize, Clone)]
 struct CacheEntry {
     url: String,
     access_count: u32,
@@ -103,6 +104,15 @@ async fn clean_cache(cache: &RwLock<HashMap<String, CacheEntry>>) {
     }
 }
 
+// Add new handler for getting all posters
+async fn get_all_posters(data: web::Data<AppState>) -> HttpResponse {
+    let cache = data.cache.read().unwrap();
+    let posters: HashMap<String, CacheEntry> = cache.iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    HttpResponse::Ok().json(posters)
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // Create semaphore with fewer concurrent requests
@@ -138,6 +148,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(app_state.clone())
             .route("/poster", web::get().to(get_poster))
+            .route("/posters", web::get().to(get_all_posters))
             .route("/", web::get().to(welcome))
     })
     .bind(("127.0.0.1", 8080))?
