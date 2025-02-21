@@ -105,30 +105,18 @@ async fn clean_cache(cache: &RwLock<HashMap<String, CacheEntry>>) {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Get ChromeDriver path from environment variable or use a default path
-    let chromedriver_path = std::env::var("CHROMEDRIVER_PATH")
-        .unwrap_or_else(|_| "./chromedriver_PATCHED.exe".to_string());
-
-    // Start ChromeDriver process with proper error handling
-    let mut child = Command::new(&chromedriver_path)
-        .arg("--port=9515")
-        .spawn()
-        .unwrap_or_else(|e| {
-            eprintln!("Failed to start ChromeDriver: {}. Using remote WebDriver instead.", e);
-            // Return a dummy child process that will be ignored
-            Command::new("echo").spawn().unwrap()
-        });
+    // Create semaphore with fewer concurrent requests
+      // Start ChromeDriver process
+    let mut child = Command::new("./chromedriver_PATCHED.exe")
+        .arg("--port=9515")  // Set the port
+        .spawn()?;
 
     // Wait a bit to ensure ChromeDriver is running
     sleep(Duration::from_secs(2)).await;
 
-    // Configure WebDriver with fallback to remote service
-    let webdriver_url = std::env::var("WEBDRIVER_URL")
-        .unwrap_or_else(|_| "http://localhost:9515".to_string());
-    
+    // Create multiple WebDriver instances for better concurrency
     let caps = DesiredCapabilities::chrome();
-    let driver = WebDriver::new(&webdriver_url, caps).await
-        .expect("Failed to connect to WebDriver");
+    let driver = WebDriver::new("http://localhost:9515", caps).await.unwrap();
 
     let app_state = web::Data::new(AppState {
         cache: Arc::new(RwLock::new(HashMap::new())),
