@@ -11,5 +11,5 @@ export let options = {
 };
 
 export default function() {
-  http.get("http://localhost:8080/poster?movie=Avengers");
+  http.get("http://127.0.0.1:8080/poster?movie=Avengers");
 }
