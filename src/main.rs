@@ -23,7 +23,7 @@ async fn get_poster(query: web::Query<PosterQuery>, semaphore: web::Data<Arc<Sem
 
         // Create a new WebDriver instance inside each task
         let caps = DesiredCapabilities::chrome();
-        match WebDriver::new("http://localhost:65094", caps).await {
+        match WebDriver::new("http://localhost:55137", caps).await {
             Ok(driver) => {
                 println!("Movie: {}", movie_name);
                 let url = format!("https://www.movieposters.com/collections/shop?q={}", movie_name);
@@ -32,7 +32,8 @@ async fn get_poster(query: web::Query<PosterQuery>, semaphore: web::Data<Arc<Sem
                 driver.goto(url).await?;
                 
                 // Find the first img element and get its src attribute
-                let img = driver.find(By::Tag("img")).await?;
+                let imgs = driver.find_all(By::Tag("img")).await?;
+                let img = imgs[1].clone();
                 let img_src = img.attr("src").await?;
                 println!("img src: {}",img.clone().class_name().await.unwrap().unwrap());
                 
@@ -56,6 +57,7 @@ async fn main() -> std::io::Result<()> {
     // Create semaphore to limit concurrent WebDriver instances
     let semaphore = web::Data::new(Arc::new(Semaphore::new(20)));
 
+    println!("Server running at http://127.0.0.1:8080");
     HttpServer::new(move || {
         App::new()
             .app_data(semaphore.clone())
@@ -66,6 +68,5 @@ async fn main() -> std::io::Result<()> {
     .run()
     .await?;
 
-    println!("Server running at http://127.0.0.1:8080");
     Ok(())
 }
