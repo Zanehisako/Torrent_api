@@ -8,7 +8,10 @@ criterion = "0.5.1"
 
 [dependencies]
 actix-web = "4.9.0"
+r2d2 = "0.8.10"
+r2d2_sqlite = "0.26.0"
 reqwest = "0.12.12"
+rusqlite = { version = "0.33", features = ["bundled"] }
 serde = "1.0.217"
 thirtyfour = "0.35.0"
 tokio = { version = "1.43.0", features = ["full"] }
