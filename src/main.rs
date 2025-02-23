@@ -1,10 +1,11 @@
 use std::{sync::Arc, time::Duration, collections::HashMap};
 use std::sync::RwLock;
+use actix_cors::Cors;
 use thirtyfour::{prelude::*, DesiredCapabilities};
 use tokio::{process::Command, sync::Semaphore, time::sleep};
 use actix_web::{web, App, HttpServer, HttpResponse};
 use serde::{Deserialize, Serialize};
-use rusqlite::{params, Connection};
+use rusqlite::params;
 use r2d2_sqlite::SqliteConnectionManager;
 use r2d2::Pool;
 
@@ -239,6 +240,11 @@ async fn main() -> std::io::Result<()> {
     println!("Server running at http://127.0.0.1:8080");
     HttpServer::new(move || {
         App::new()
+            .wrap(
+                Cors::default()
+                    .allow_any_origin()
+                    .send_wildcard()
+            )
             .app_data(app_state.clone())
             .route("/poster", web::get().to(get_poster))
             .route("/posters", web::get().to(get_all_posters))
